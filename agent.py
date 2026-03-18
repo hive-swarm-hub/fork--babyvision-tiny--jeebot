@@ -83,7 +83,7 @@ def solve(question: str, image_path: str, ans_type: str, options: list) -> str:
     desc_messages = [{"role": "user", "content": [hi_url,
         {"type": "text", "text": "Describe this image in detail. Focus on: the layout/grid structure, all visual elements (shapes, colors, patterns, numbers, letters), positions of elements, any differences or similarities between elements, and any spatial relationships. Be thorough and precise."}
     ]}]
-    description = api_call(client, model, desc_messages, temperature=0, max_tokens=512)
+    description = api_call(client, model, desc_messages, temperature=0, max_tokens=2048)
     if not description:
         description = "(no description available)"
 
@@ -215,7 +215,7 @@ Think step by step. Pay close attention to the exact format requested in the que
 Give your final answer in the exact format requested. Put ONLY the answer value on the last line."""
 
     messages.append({"role": "user", "content": [img_url, {"type": "text", "text": answer_prompt}]})
-    raw_a = api_call(client, model, messages, temperature=0, max_tokens=1024)
+    raw_a = api_call(client, model, messages, temperature=0, max_tokens=2048)
     answer_a = extract_blank(raw_a)
 
     # Approach 2: Single-turn with different framing
