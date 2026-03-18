@@ -98,7 +98,7 @@ def solve(question: str, image_path: str, ans_type: str, options: list) -> str:
 
 
 def solve_choice(client, model, question, options, img_url, hi_url):
-    """Solve choice with single-shot at temp=0."""
+    """Solve choice with elimination + confirmation approach."""
     n = len(options)
     labels = ['A', 'B', 'C', 'D'][:n]
     all_letters = all(len(o) == 1 and o in 'ABCD' for o in options)
@@ -108,7 +108,11 @@ def solve_choice(client, model, question, options, img_url, hi_url):
 
 The options are shown in the image as {', '.join(labels)}.
 
-Look at the image very carefully. First, describe what you see in EACH option ({', '.join(labels)}) separately and in detail. Then, explain step by step which option is correct and why, comparing each option against the requirements. Finally, give your final answer as ONLY a single letter ({', '.join(labels)}) on the last line."""
+Look at the image very carefully.
+Step 1: Describe what you see in EACH option ({', '.join(labels)}) separately.
+Step 2: For each option, explain why it might be WRONG. Look for specific mismatches.
+Step 3: The option with the FEWEST problems is the correct one.
+Give your final answer as ONLY a single letter ({', '.join(labels)}) on the last line."""
     else:
         opts = "\n".join(f"{labels[i]}. {o}" for i, o in enumerate(options))
         prompt = f"""{question}
@@ -116,7 +120,11 @@ Look at the image very carefully. First, describe what you see in EACH option ({
 Options:
 {opts}
 
-Look at the image very carefully. First, describe what you see for each option. Then, explain step by step which option is correct and why. Finally, give your final answer as ONLY a single letter ({', '.join(labels)}) on the last line."""
+Look at the image very carefully.
+Step 1: Describe what you see for each option.
+Step 2: For each option, explain why it might be WRONG.
+Step 3: The option with the fewest problems is correct.
+Give your final answer as ONLY a single letter ({', '.join(labels)}) on the last line."""
 
     raw = api_call(client, model,
         [{"role": "user", "content": [hi_url, {"type": "text", "text": prompt}]}],
@@ -157,26 +165,6 @@ Be very precise — examine each cell/element carefully."""
         programmatic_count = grid_text.count('X')
         if programmatic_count > 0:
             return str(programmatic_count), f"GRID_COUNT={programmatic_count}\n{grid_text}"
-
-    # Specialized 3D block counting
-    if is_counting and any(w in q_lower for w in ["3d", "block", "cube", "stack"]):
-        block_prompt = f"""{question}
-
-This shows a 3D structure of cubes/blocks viewed from an angle.
-
-IMPORTANT: Count ALL cubes including hidden ones that MUST exist to support visible cubes above.
-Count systematically:
-1. Identify EACH visible column (vertical stack) position
-2. For each column, count how many cubes are stacked
-3. For any cube that has another cube on top of it, that supporting cube MUST be counted even if hidden
-4. Sum ALL cubes (visible + hidden support cubes)
-
-Put ONLY the total count number on the last line."""
-        raw_3d = api_call(client, model,
-            [{"role": "user", "content": [hi_url, {"type": "text", "text": block_prompt}]}],
-            temperature=0, max_tokens=2048)
-        answer_3d = extract_blank(raw_3d)
-        return answer_3d, raw_3d
 
     # Standard approach: 2 prompts
     if is_counting:
