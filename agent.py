@@ -158,9 +158,9 @@ Be very precise — examine each cell/element carefully."""
         if programmatic_count > 0:
             return str(programmatic_count), f"GRID_COUNT={programmatic_count}\n{grid_text}"
 
-    # Standard approach: 2 prompts
     if is_counting:
-        prompt_a = f"""{question}
+        # 3-approach counting with median for stability
+        count_prompt = f"""{question}
 
 Look at the image very carefully. Count methodically:
 1. Identify exactly what needs to be counted
@@ -169,39 +169,54 @@ Look at the image very carefully. Count methodically:
 4. Double-check by counting again from a different starting point
 
 Put ONLY the final count number on the last line."""
+
+        raw_a = api_call(client, model,
+            [{"role": "user", "content": [hi_url, {"type": "text", "text": count_prompt}]}],
+            temperature=0, max_tokens=2048)
+        answer_a = extract_blank(raw_a)
+
+        raw_b = api_call(client, model,
+            [{"role": "user", "content": [img_url, {"type": "text", "text": count_prompt}]}],
+            temperature=0, max_tokens=2048)
+        answer_b = extract_blank(raw_b)
+
+        count_prompt_c = f"""Question: {question}
+
+Count carefully. List each item as you count. Put ONLY the number on the last line."""
+        raw_c = api_call(client, model,
+            [{"role": "user", "content": [hi_url, {"type": "text", "text": count_prompt_c}]}],
+            temperature=0, max_tokens=1024)
+        answer_c = extract_blank(raw_c)
+
+        try:
+            counts = sorted([int(answer_a), int(answer_b), int(answer_c)])
+            median = counts[1]
+            return str(median), f"A={answer_a} B={answer_b} C={answer_c} MED={median}"
+        except ValueError:
+            return answer_a, f"A={answer_a} B={answer_b} C={answer_c}"
     else:
+        # Non-counting: hi-detail + standard
         prompt_a = f"""{question}
 
 Look at the image very carefully. Think step by step. Pay close attention to the exact format requested in the question. Give your final answer in the exact format requested. Put ONLY the answer value on the last line."""
 
-    raw_a = api_call(client, model,
-        [{"role": "user", "content": [hi_url, {"type": "text", "text": prompt_a}]}],
-        temperature=0, max_tokens=2048)
-    answer_a = extract_blank(raw_a)
+        raw_a = api_call(client, model,
+            [{"role": "user", "content": [hi_url, {"type": "text", "text": prompt_a}]}],
+            temperature=0, max_tokens=2048)
+        answer_a = extract_blank(raw_a)
 
-    prompt_b = f"""Question: {question}
+        prompt_b = f"""Question: {question}
 
 Look at the image carefully. Think step by step. Give your final answer in the exact format requested. Put ONLY the answer value on the last line."""
 
-    raw_b = api_call(client, model,
-        [{"role": "user", "content": [img_url, {"type": "text", "text": prompt_b}]}],
-        temperature=0, max_tokens=1024)
-    answer_b = extract_blank(raw_b)
+        raw_b = api_call(client, model,
+            [{"role": "user", "content": [img_url, {"type": "text", "text": prompt_b}]}],
+            temperature=0, max_tokens=1024)
+        answer_b = extract_blank(raw_b)
 
-    if answer_a == answer_b:
-        return answer_a, raw_a
-
-    if is_counting:
-        try:
-            va, vb = int(answer_a), int(answer_b)
-            if va >= vb:
-                return answer_a, f"A={answer_a} B={answer_b} PICKED=A(hi-detail)"
-            else:
-                return answer_b, f"A={answer_a} B={answer_b} PICKED=B(higher)"
-        except ValueError:
-            pass
-
-    return answer_a, f"A={answer_a} B={answer_b} PICKED=A(hi-detail)"
+        if answer_a == answer_b:
+            return answer_a, raw_a
+        return answer_a, f"A={answer_a} B={answer_b} PICKED=A(hi-detail)"
 
 
 if __name__ == "__main__":
