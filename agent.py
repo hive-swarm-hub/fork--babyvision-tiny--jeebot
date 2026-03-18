@@ -131,7 +131,7 @@ def is_grid_counting(question):
     if not any(w in q for w in ["how many", "count"]):
         return False
     if any(w in q for w in ["square", "pattern"]):
-        if any(w in q for w in ["3d", "block", "cube"]):
+        if any(w in q for w in ["3d", "block", "cube", "line", "pass through", "point"]):
             return False
         return True
     return False
@@ -157,6 +157,20 @@ Be very precise — examine each cell/element carefully."""
         programmatic_count = grid_text.count('X')
         if programmatic_count > 0:
             return str(programmatic_count), f"GRID_COUNT={programmatic_count}\n{grid_text}"
+
+    # Special handling for multi-answer questions (e.g., cube unfold)
+    if "which of the following" in q_lower and not is_counting:
+        multi_prompt = f"""{question}
+
+Look at the image very carefully. Check EACH option (A, B, C, D, etc.) individually.
+For each option, determine if it is correct or incorrect, and explain why.
+List ALL correct options separated by commas.
+Put ONLY the correct option letters (e.g., B,C) on the last line."""
+
+        raw = api_call(client, model,
+            [{"role": "user", "content": [hi_url, {"type": "text", "text": multi_prompt}]}],
+            temperature=0, max_tokens=2048)
+        return extract_blank(raw), raw
 
     if is_counting:
         # 3-approach counting with median for stability
