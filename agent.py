@@ -161,9 +161,20 @@ def solve_blank(client, model, question, description, img_url, desc_messages):
     q_lower = question.lower()
     is_counting = any(w in q_lower for w in ["how many", "count", "pass through", "total"])
 
-    # Grid transcription for grid-based counting (e.g., "how many black squares")
-    if is_grid_counting(question):
-        grid_prompt = f"""Look at this image carefully. The question is: {question}
+    # Grid transcription for counting
+    is_grid = is_counting and any(w in q_lower for w in ["square", "pattern", "pass through", "point"]) and not any(w in q_lower for w in ["3d", "block", "cube"])
+    if is_grid:
+        if any(w in q_lower for w in ["pass through", "point"]):
+            grid_prompt = f"""Look at this image carefully. The question is: {question}
+
+The image shows dots arranged in a grid with lines connecting some of them. Your task: for EACH dot in the grid, write 'X' if the line passes through it, or '.' if it doesn't.
+
+Write the grid of dots row by row from top to bottom, left to right. Use 'X' for dots the line passes through, '.' for dots it doesn't.
+One row per line. Separate with spaces.
+
+Be very precise — trace the line carefully through each dot."""
+        else:
+            grid_prompt = f"""Look at this image carefully. The question is: {question}
 
 Your task: Transcribe the image as a grid/matrix. For EACH element in the image, write 'X' if it matches what needs to be counted, or '.' if it doesn't.
 
