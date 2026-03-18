@@ -188,6 +188,21 @@ Be very precise — examine each cell/element carefully."""
         if programmatic_count > 0:
             return str(programmatic_count), f"GRID_COUNT={programmatic_count}\n{grid_text}"
 
+    # Special: multi-answer questions (e.g., "which of the following" with multiple correct)
+    if "which" in q_lower and ("following" in q_lower or "option" in q_lower) and not is_counting:
+        multi_prompt = f"""{question}
+
+Look at the image very carefully. Check EACH option individually.
+For each option, determine if it is correct or incorrect, and explain why.
+List ALL correct options separated by commas (e.g., B,C or A,B,D).
+Put ONLY the correct option letters on the last line."""
+
+        messages = list(desc_messages)
+        messages.append({"role": "assistant", "content": description})
+        messages.append({"role": "user", "content": [img_url, {"type": "text", "text": multi_prompt}]})
+        raw = api_call(client, model, messages, temperature=0, max_tokens=2048)
+        return extract_blank(raw), raw
+
     # Approach 1: Multi-turn (description context + answer)
     messages = list(desc_messages)
     messages.append({"role": "assistant", "content": description})
