@@ -50,7 +50,10 @@ def extract_blank(raw_output):
     """Extract blank answer from last line."""
     lines = [l.strip() for l in raw_output.split("\n") if l.strip()]
     answer = lines[-1] if lines else raw_output
+    answer = answer.replace('**', '')
     answer = re.sub(r'\s*,\s*', ',', answer)
+    if re.search(r'\d\s*-\s*\d', answer):
+        answer = re.sub(r'\s*-\s*', '-', answer)
     answer = answer.rstrip('.')
     return answer
 
@@ -160,6 +163,20 @@ def solve_blank(client, model, question, description, img_url, desc_messages):
     """Solve blank with 2 prompts + multi-turn approach + grid transcription for counting."""
     q_lower = question.lower()
     is_counting = any(w in q_lower for w in ["how many", "count", "pass through", "total"])
+
+    # Multi-answer questions (e.g., cube unfold — can have multiple correct options)
+    if "which of the following" in q_lower and not is_counting:
+        multi_prompt = f"""{question}
+
+Look at the image very carefully. Check EACH option (A, B, C, D, etc.) individually.
+For each option, determine if it is correct or incorrect, and explain why.
+List ALL correct options separated by commas with no spaces.
+Put ONLY the correct option letters (e.g., B,C) on the last line."""
+
+        raw = api_call(client, model,
+            [{"role": "user", "content": [img_url, {"type": "text", "text": multi_prompt}]}],
+            temperature=0, max_tokens=2048)
+        return extract_blank(raw), raw
 
     # Grid transcription for grid-based counting (e.g., "how many black squares")
     if is_grid_counting(question):
