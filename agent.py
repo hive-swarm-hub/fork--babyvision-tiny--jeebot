@@ -163,8 +163,17 @@ X X . . X
 
 Be very precise — examine each cell/element carefully."""
 
-            grid_text = api_call(client, model, [{"role": "user", "content": [img_url, {"type": "text", "text": grid_prompt}]}], temperature=0, max_tokens=2048)
-            grid_count = grid_text.count('X') if grid_text else 0
+            # Run grid transcription twice with slightly different prompts, take max
+            grid_text1 = api_call(client, model, [{"role": "user", "content": [img_url, {"type": "text", "text": grid_prompt}]}], temperature=0, max_tokens=2048)
+            grid_count1 = grid_text1.count('X') if grid_text1 else 0
+
+            grid_prompt2 = grid_prompt + "\n\nIMPORTANT: Make sure you don't miss any — trace every line segment carefully."
+            grid_text2 = api_call(client, model, [{"role": "user", "content": [img_url, {"type": "text", "text": grid_prompt2}]}], temperature=0.1, max_tokens=2048)
+            grid_count2 = grid_text2.count('X') if grid_text2 else 0
+
+            # Take max (model tends to under-mark)
+            grid_count = max(grid_count1, grid_count2)
+            grid_text = f"COUNT1={grid_count1} COUNT2={grid_count2} MAX={grid_count}\n---\n{grid_text1}\n---\n{grid_text2}"
 
             if grid_count > 0:
                 answer = str(grid_count)
@@ -289,5 +298,7 @@ Think step by step, then give your final answer in the exact format requested. P
 if __name__ == "__main__":
     data = json.loads(sys.stdin.read().strip())
     print(solve(data["question"], data["image_path"], data["ans_type"], data.get("options", [])))
+
+
 
 
