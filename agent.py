@@ -291,3 +291,4 @@ if __name__ == "__main__":
     print(solve(data["question"], data["image_path"], data["ans_type"], data.get("options", [])))
 
 
+# v18 peak
