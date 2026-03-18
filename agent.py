@@ -28,33 +28,17 @@ def load_image_b64(image_path: str, min_size: int = 768) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def api_call(client, model, messages, temperature=0, max_tokens=1024):
-    """API call with retry on empty response."""
-    for _ in range(2):
-        resp = client.chat.completions.create(
-            model=model, messages=messages,
-            temperature=temperature, max_completion_tokens=max_tokens,
-        )
-        content = resp.choices[0].message.content
-        if content and content.strip():
-            return content.strip(), resp
-    return "", resp
-
-
 def extract_choice(raw_output):
     """Extract choice answer: letter -> 0-indexed."""
     lines = [l.strip() for l in raw_output.split("\n") if l.strip()]
     answer_line = lines[-1] if lines else raw_output
     letter_map = {'A': '0', 'B': '1', 'C': '2', 'D': '3'}
-    # Look for standalone letter on last line
     m = re.search(r'\b([A-D])\b', answer_line)
     if m and m.group(1) in letter_map:
         return letter_map[m.group(1)]
-    # Look for digit 0-3
     m = re.search(r'\b([0-3])\b', answer_line)
     if m:
         return m.group(1)
-    # Search backwards through lines
     for line in reversed(lines):
         m = re.search(r'\b([A-D])\b', line)
         if m and m.group(1) in letter_map:
@@ -63,31 +47,38 @@ def extract_choice(raw_output):
 
 
 def extract_blank(raw_output):
-    """Extract blank answer from last line, clean formatting."""
+    """Extract blank answer from last line."""
     lines = [l.strip() for l in raw_output.split("\n") if l.strip()]
     answer = lines[-1] if lines else raw_output
-    # Remove markdown bold
-    answer = answer.replace('**', '')
-    # Clean spaces around commas
     answer = re.sub(r'\s*,\s*', ',', answer)
-    # Clean spaces around hyphens in pair-like patterns (e.g. "1 - 7")
-    if re.search(r'\d\s*-\s*\d', answer):
-        answer = re.sub(r'\s*-\s*', '-', answer)
     answer = answer.rstrip('.')
     return answer
 
 
+def api_call(client, model, messages, temperature=0, max_tokens=1024):
+    """API call with retry on empty."""
+    for _ in range(2):
+        resp = client.chat.completions.create(
+            model=model, messages=messages,
+            temperature=temperature, max_completion_tokens=max_tokens,
+        )
+        content = resp.choices[0].message.content
+        if content and content.strip():
+            return content.strip()
+    return ""
+
+
 def solve(question: str, image_path: str, ans_type: str, options: list) -> str:
     client = OpenAI()
-    model = os.environ.get("SOLVER_MODEL", "gpt-5.4-mini")
     img_b64 = load_image_b64(image_path)
     img_url = {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
     hi_url = {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}", "detail": "high"}}
+    model = os.environ.get("SOLVER_MODEL", "gpt-5.4-mini")
 
     if ans_type == "choice" and options:
-        answer, raw = solve_choice(client, model, question, options, img_url, hi_url)
+        answer, raw_output = solve_choice(client, model, question, options, img_url, hi_url)
     else:
-        answer, raw = solve_blank(client, model, question, img_url, hi_url)
+        answer, raw_output = solve_blank(client, model, question, img_url, hi_url)
 
     # Save trajectory
     traj_dir = os.environ.get("EVAL_TRAJECTORY_DIR")
@@ -99,14 +90,14 @@ def solve(question: str, image_path: str, ans_type: str, options: list) -> str:
                 "index": int(idx), "model": model,
                 "question": question, "image_path": image_path,
                 "ans_type": ans_type, "options": options,
-                "raw_response": raw, "parsed_answer": answer,
+                "raw_response": raw_output, "parsed_answer": answer,
             }, f, indent=2)
 
     return answer
 
 
 def solve_choice(client, model, question, options, img_url, hi_url):
-    """Solve choice with 5-vote majority voting."""
+    """Solve choice with single-shot at temp=0."""
     n = len(options)
     labels = ['A', 'B', 'C', 'D'][:n]
     all_letters = all(len(o) == 1 and o in 'ABCD' for o in options)
@@ -124,29 +115,13 @@ Look at the image very carefully. First, describe what you see in EACH option ({
 Options:
 {opts}
 
-Look at the image very carefully. First, describe what you see for each option in detail. Then, explain step by step which option is correct and why. Finally, give your final answer as ONLY a single letter ({', '.join(labels)}) on the last line."""
+Look at the image very carefully. First, describe what you see for each option. Then, explain step by step which option is correct and why. Finally, give your final answer as ONLY a single letter ({', '.join(labels)}) on the last line."""
 
-    # Vote 1: temp=0 with detail:high
-    votes = []
-    raws = []
-    raw1, _ = api_call(client, model,
+    raw = api_call(client, model,
         [{"role": "user", "content": [hi_url, {"type": "text", "text": prompt}]}],
         temperature=0, max_tokens=2048)
-    votes.append(extract_choice(raw1))
-    raws.append(raw1)
-
-    # Votes 2-5: temp=0.3 with detail:high
-    for _ in range(4):
-        raw_v, _ = api_call(client, model,
-            [{"role": "user", "content": [hi_url, {"type": "text", "text": prompt}]}],
-            temperature=0.3, max_tokens=2048)
-        votes.append(extract_choice(raw_v))
-        raws.append(raw_v)
-
-    # Majority vote
-    counter = Counter(votes)
-    answer = counter.most_common(1)[0][0]
-    return answer, f"VOTES={votes} WINNER={answer}\n{raws[0]}"
+    answer = extract_choice(raw)
+    return answer, raw
 
 
 def is_grid_counting(question):
@@ -162,7 +137,7 @@ def is_grid_counting(question):
 
 
 def solve_blank(client, model, question, img_url, hi_url):
-    """Solve blank with grid transcription for counting + dual approach."""
+    """Solve blank with grid transcription for counting + direct reasoning."""
     q_lower = question.lower()
     is_counting = any(w in q_lower for w in ["how many", "count", "pass through", "total"])
 
@@ -175,14 +150,14 @@ Your task: Transcribe the image as a grid/matrix. For EACH element in the image,
 Write the grid row by row. One row per line. Use only 'X' and '.' characters separated by spaces.
 Be very precise — examine each cell/element carefully."""
 
-        grid_text, _ = api_call(client, model,
+        grid_text = api_call(client, model,
             [{"role": "user", "content": [hi_url, {"type": "text", "text": grid_prompt}]}],
             temperature=0, max_tokens=2048)
-        count = grid_text.count('X')
-        if count > 0:
-            return str(count), f"GRID_COUNT={count}\n{grid_text}"
+        programmatic_count = grid_text.count('X')
+        if programmatic_count > 0:
+            return str(programmatic_count), f"GRID_COUNT={programmatic_count}\n{grid_text}"
 
-    # Approach A: detail:high with CoT
+    # Standard approach: 2 prompts
     if is_counting:
         prompt_a = f"""{question}
 
@@ -198,17 +173,16 @@ Put ONLY the final count number on the last line."""
 
 Look at the image very carefully. Think step by step. Pay close attention to the exact format requested in the question. Give your final answer in the exact format requested. Put ONLY the answer value on the last line."""
 
-    raw_a, _ = api_call(client, model,
+    raw_a = api_call(client, model,
         [{"role": "user", "content": [hi_url, {"type": "text", "text": prompt_a}]}],
         temperature=0, max_tokens=2048)
     answer_a = extract_blank(raw_a)
 
-    # Approach B: standard detail with different framing
     prompt_b = f"""Question: {question}
 
 Look at the image carefully. Think step by step. Give your final answer in the exact format requested. Put ONLY the answer value on the last line."""
 
-    raw_b, _ = api_call(client, model,
+    raw_b = api_call(client, model,
         [{"role": "user", "content": [img_url, {"type": "text", "text": prompt_b}]}],
         temperature=0, max_tokens=1024)
     answer_b = extract_blank(raw_b)
@@ -216,12 +190,13 @@ Look at the image carefully. Think step by step. Give your final answer in the e
     if answer_a == answer_b:
         return answer_a, raw_a
 
-    # Tiebreak
     if is_counting:
         try:
             va, vb = int(answer_a), int(answer_b)
-            # Prefer the one closer to the hi-detail answer
-            return answer_a if va >= vb else answer_b, f"A={answer_a} B={answer_b}"
+            if va >= vb:
+                return answer_a, f"A={answer_a} B={answer_b} PICKED=A(hi-detail)"
+            else:
+                return answer_b, f"A={answer_a} B={answer_b} PICKED=B(higher)"
         except ValueError:
             pass
 
