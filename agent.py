@@ -122,35 +122,8 @@ Then, explain step by step which option is correct and why.
 Finally, give your final answer as ONLY a single letter ({', '.join(labels)}) on the last line."""
 
         messages.append({"role": "user", "content": [img_url, {"type": "text", "text": answer_prompt}]})
-        raw_mt = api_call(client, model, messages, temperature=0, max_tokens=1500)
-        answer_mt = extract_choice_letter(raw_mt)
-
-        # Also run single-shot for diversity
-        if all_letters:
-            ss_prompt = f"""{question}
-
-The options are shown in the image as {', '.join(labels)}.
-
-Look at the image very carefully. First, describe what you see in EACH option ({', '.join(labels)}) separately and in detail. Then, explain step by step which option is correct and why, comparing each option against the requirements. Finally, give your final answer as ONLY a single letter ({', '.join(labels)}) on the last line."""
-        else:
-            ss_prompt = f"""{question}
-
-Options:
-{opts if not all_letters else ''}
-
-Look at the image very carefully. First, describe what you see for each option. Then, explain step by step which option is correct and why. Finally, give your final answer as ONLY a single letter ({', '.join(labels)}) on the last line."""
-
-        raw_ss = api_call(client, model,
-            [{"role": "user", "content": [hi_url, {"type": "text", "text": ss_prompt}]}],
-            temperature=0, max_tokens=2048)
-        answer_ss = extract_choice_letter(raw_ss)
-
-        # If both agree, use that. If disagree, prefer multi-turn.
-        if answer_mt == answer_ss:
-            answer = answer_mt
-        else:
-            answer = answer_mt  # multi-turn tends to be more accurate
-        raw_output = f"MT={answer_mt} SS={answer_ss} PICK={answer}\n{raw_mt}"
+        raw_output = api_call(client, model, messages, temperature=0, max_tokens=1500)
+        answer = extract_choice_letter(raw_output)
 
     else:
         # Blank questions
