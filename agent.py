@@ -152,7 +152,15 @@ def solve_blank(client, model, question, img_url, hi_url):
 
     # Grid transcription for grid-based counting
     if is_grid_counting(question):
-        grid_prompt = f"""Look at this image carefully. The question is: {question}
+        if any(w in q_lower for w in ["pass through", "point"]):
+            grid_prompt = f"""Look at this image carefully. The question is: {question}
+
+The image shows dots arranged in a grid with lines connecting some of them. For EACH dot, write 'X' if the line passes through it, '.' if not.
+
+Write row by row, top to bottom. One row per line. Separate with spaces.
+Be very precise — trace the line carefully through each dot."""
+        else:
+            grid_prompt = f"""Look at this image carefully. The question is: {question}
 
 Your task: Transcribe the image as a grid/matrix. For EACH element in the image, write 'X' if it matches what needs to be counted, or '.' if it doesn't.
 
